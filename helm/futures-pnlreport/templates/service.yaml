@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "futures-pnlreport.fullname" . }}
+  labels:
+    {{- include "futures-pnlreport.labels" . | nindent 4 }}
+  annotations:
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "futures-pnlreport.selectorLabels" . | nindent 4 }}
