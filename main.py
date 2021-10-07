@@ -1,4 +1,5 @@
 import datetime
+import os
 
 from flask import Flask, render_template, request, make_response
 from flask_cors import CORS
@@ -42,4 +43,4 @@ def bot_stats():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
