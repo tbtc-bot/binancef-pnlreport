@@ -5,7 +5,7 @@ from json import JSONEncoder
 from typing import Optional
 
 from binance.client import Client
-
+from sys import platform
 
 class OrderStatus:
     def __init__(self,
@@ -35,7 +35,7 @@ class IncomeSummary:
                  transfer: float = 0.0,
                  welcomeBonus: float = 0.0,
                  realizedPnl: float = 0.0,
-                 fundingFee: float = 0.0,
+                 funding_fee: float = 0.0,
                  commission: float = 0.0,
                  insuranceClear: float = 0.0,
                  crossCollateralTransfer: float = 0.0,
@@ -46,7 +46,7 @@ class IncomeSummary:
         self.transfer: float = transfer
         self.welcomeBonus: float = welcomeBonus
         self.realizedPnl: float = realizedPnl
-        self.fundingFee: float = fundingFee
+        self.funding_fee: float = funding_fee
         self.commission: float = commission
         self.insuranceClear: float = insuranceClear
         self.crossCollateralTransfer: float = crossCollateralTransfer
@@ -157,7 +157,6 @@ class BotSummary:
         self.positionsTot: Optional[PositionSummary] = None
         self.start_timestamp: int = 0
         self.end_timestamp: int = 0
-        self.hystorical = False
 
     # noinspection PyListCreation
     def to_str(self):
@@ -272,79 +271,87 @@ class BotSummaryEncoder(JSONEncoder):
 
 def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, end_timestamp=0) -> BotSummary:
     client = Client(api_key, api_secret)
-
-    now = datetime.datetime.now(tz=datetime.timezone.utc)
-    bot_summary = BotSummary(bot_name, int(now.timestamp() * 1000))
+    
+    print ('binance_bot_summary logs')
+    now=datetime.datetime.now(tz=datetime.timezone.utc)
+    print ('now=',now)
+    bot_summary = BotSummary(bot_name, int(now.timestamp() * 1000))#1000 = seconds to milliseconds
 
     if start_timestamp == 0:
-        start_timestamp = int(datetime.datetime(now.year, now.month, now.day, tzinfo=datetime.timezone.utc).timestamp() * 1000)
+        start_timestamp = int(datetime.datetime(now.year, now.month, now.day, tzinfo=datetime.timezone.utc).timestamp() * 1000) #1000 = seconds to milliseconds
+        print('start_timestamp=0 pertanto lo calcolo: ', start_timestamp)
 
-    hystorical = True
     if end_timestamp == 0:
-        end_timestamp = int(now.timestamp() * 1000)
-        hystorical = False
+        end_timestamp = int(datetime.datetime(now.year, now.month, now.day,23,59,59, tzinfo=datetime.timezone.utc).timestamp() * 1000) #1000 = seconds to milliseconds
+        print('end_timestamp=0 pertanto lo calcolo: ', end_timestamp)
 
-    bot_summary.hystorical = hystorical
+    #loggo i valori delle date 
+    print("start_timestamp:",start_timestamp," end_timestamp:",end_timestamp)
+    start_win=datetime.date.fromtimestamp(start_timestamp/1000)
+    end_win=datetime.date.fromtimestamp(end_timestamp/1000)
+    print("cerco elementi compresi tra (start_win): ",start_win.strftime("%Y-%m-%d %H:%M:%S")," e (end_win): ",end_win.strftime("%Y-%m-%d %H:%M:%S"))
+
     bot_summary.start_timestamp = start_timestamp
     bot_summary.end_timestamp = end_timestamp
 
     positions_by_symbol = {}
     orders_by_symbol = {}
 
-    if hystorical:
+    try:
+        account = client.futures_account(timestamp= now.timestamp())
+        for p in account['positions']:
+            symbol = get_symbol(p)
+            positions_by_symbol[symbol] = p
+    except Exception as e: 
+        print('Eccezione raggiunta durante richiesta futures_account: ',e)
         account = {}
-    else:
-        try:
-            account = client.futures_account()
-            for p in account['positions']:
-                symbol = get_symbol(p)
-                positions_by_symbol[symbol] = p
-        except:
-            account = {}
+    
+    try:
+        orders = client.futures_get_open_orders()
+    except Exception as e: 
+        print('Eccezione raggiunta durante richiesta futures_get_open_orders: ',e)
+        orders = []
 
-        try:
-            orders = client.futures_get_open_orders()
-        except:
-            orders = []
-
-        for o in orders:
-            symbol = get_symbol(o)
-            if symbol not in orders_by_symbol:
-                orders_by_symbol[symbol] = OrderStatus()
-            obs = orders_by_symbol[symbol]
-            qty = (float(o['origQty']) - float(o['executedQty'])) * (1 if o['side'] == 'BUY' else -1)
-            price = float(o['price'])
-            value = price * qty
-            pos_qty = float(positions_by_symbol[symbol]['positionAmt']) if symbol in positions_by_symbol else 0.0
-            if o['reduceOnly']:
-                obs.closingCount = obs.closingCount + 1
-                obs.closingAmt = obs.closingAmt + qty
-                obs.closingValue = obs.closingValue + value
-                if obs.tpPrice == 0:
-                    obs.tpPrice = price
-                elif pos_qty >= 0:
-                    obs.tpPrice = max(obs.tpPrice, price)
-                else:
-                    obs.tpPrice = min(obs.tpPrice, price)
-            elif (pos_qty >= 0 and o['side'] == 'BUY') or (pos_qty < 0 and o['side'] == 'SELL'):
-                obs.openingCount = obs.openingCount + 1
-                obs.openingAmt = obs.openingAmt + qty
-                obs.openingValue = obs.openingValue + value
-                if obs.lastGridPrice == 0:
-                    obs.lastGridPrice = price
-                elif pos_qty >= 0:
-                    obs.lastGridPrice = min(obs.lastGridPrice, price)
-                else:
-                    obs.lastGridPrice = max(obs.lastGridPrice, price)
+    for o in orders:
+        symbol = get_symbol(o)
+        if symbol not in orders_by_symbol:
+            orders_by_symbol[symbol] = OrderStatus()
+        obs = orders_by_symbol[symbol]
+        qty = (float(o['origQty']) - float(o['executedQty'])) * (1 if o['side'] == 'BUY' else -1)
+        price = float(o['price'])
+        value = price * qty
+        pos_qty = float(positions_by_symbol[symbol]['positionAmt']) if symbol in positions_by_symbol else 0.0
+        if o['reduceOnly']:
+            obs.closingCount = obs.closingCount + 1
+            obs.closingAmt = obs.closingAmt + qty
+            obs.closingValue = obs.closingValue + value
+            if obs.tpPrice == 0:
+                obs.tpPrice = price
+            elif pos_qty >= 0:
+                obs.tpPrice = max(obs.tpPrice, price)
+            else:
+                obs.tpPrice = min(obs.tpPrice, price)
+        elif (pos_qty >= 0 and o['side'] == 'BUY') or (pos_qty < 0 and o['side'] == 'SELL'):
+            obs.openingCount = obs.openingCount + 1
+            obs.openingAmt = obs.openingAmt + qty
+            obs.openingValue = obs.openingValue + value
+            if obs.lastGridPrice == 0:
+                obs.lastGridPrice = price
+            elif pos_qty >= 0:
+                obs.lastGridPrice = min(obs.lastGridPrice, price)
+            else:
+                obs.lastGridPrice = max(obs.lastGridPrice, price)
 
     trades = []
     tlen = -1
     max_num_incomes = 1000
     last_num_trds = max_num_incomes
+    start_timestamp_copy = start_timestamp
     while len(trades) > tlen and last_num_trds == max_num_incomes:
         try:
-            tmp_trades = client.futures_account_trades(startTime=start_timestamp, endTime=end_timestamp, limit=max_num_incomes)
-        except:
+            tmp_trades = client.futures_account_trades(startTime=start_timestamp_copy, endTime=end_timestamp, limit=max_num_incomes)
+        except Exception as e: 
+            print('Eccezione raggiunta durante richiesta futures_account_trades: ',e)
             tmp_trades = []
 
         last_num_trds = len(tmp_trades)
@@ -353,16 +360,18 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             tlen = len(trades)
             new_trades = [t for t in tmp_trades if t['time'] < max_time or last_num_trds < max_num_incomes]
             trades.extend(new_trades)
-            start_timestamp = max_time
+            start_timestamp_copy = max_time
 
     incomes = []
     ilen = -1
     max_num_incomes = 1000
     last_num_incomes = max_num_incomes
+    start_timestamp_copy = start_timestamp
     while len(incomes) > ilen and last_num_incomes == max_num_incomes:
         try:
-            tmp_incomes = client.futures_income_history(startTime=start_timestamp, endTime=end_timestamp, limit=max_num_incomes, incomeType='fundingFee')
-        except:
+            tmp_incomes = client.futures_income_history(startTime=start_timestamp_copy, endTime=end_timestamp, limit=max_num_incomes, incomeType='FUNDING_FEE', timestamp= now.timestamp() ) 
+        except Exception as e: 
+            print('Eccezione raggiunta durante richiesta futures_income_history: ',e)
             tmp_incomes = []
 
         last_num_incomes = len(tmp_incomes)
@@ -371,7 +380,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             ilen = len(incomes)
             new_incomes = [t for t in tmp_incomes if t['time'] < max_time or last_num_incomes < max_num_incomes]
             incomes.extend(new_incomes)
-            start_timestamp = max_time
+            start_timestamp_copy = max_time
 
     asset_prices = {
         'USDT': 1.0
@@ -381,9 +390,9 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
     for t in trades:
         symbol = get_symbol(t)
         commission_asset = t['commissionAsset']
-        commission_asset_price = get_asset_price(commission_asset, asset_prices, client, end_timestamp, hystorical, now)
+        commission_asset_price = get_asset_price(commission_asset, asset_prices, client, end_timestamp, now)
         margin_asset = t['marginAsset']
-        margin_asset_price = get_asset_price(margin_asset, asset_prices, client, end_timestamp, hystorical, now)
+        margin_asset_price = get_asset_price(margin_asset, asset_prices, client, end_timestamp, now)
         commission = float(t['commission']) * commission_asset_price
         realizedPnl = float(t['realizedPnl']) * margin_asset_price
         if symbol not in income_by_symbol:
@@ -398,7 +407,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
     for t in incomes:
         symbol = t['symbol']
         asset = t['asset']
-        asset_price = get_asset_price(asset, asset_prices, client, end_timestamp, hystorical, now)
+        asset_price = get_asset_price(asset, asset_prices, client, end_timestamp, now )
         income_type = str(t['incomeType']).lower()
         income = float(t['income']) * asset_price
         if symbol not in income_by_symbol:
@@ -422,7 +431,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
     bot_summary.positions = {}
     bot_summary.positionsTot = tot
 
-    if hystorical:
+    if(account == {}):
         for symbol in income_by_symbol.keys():
             income = income_by_symbol[symbol]
             ps = PositionSummary(symbol)
@@ -439,7 +448,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             tot.commission = tot.commission + ps.commission
         for p in bot_summary.positions.values():
             p.realizedPnlPerc = p.realizedPnl / tot.realizedPnl if tot.realizedPnl != 0 else 0.0
-            p.tradeCountPerc = p.tradeCount / tot.tradeCount if tot.tradeCount != 0 else 0.0
+            p.tradeCountPerc = p.tradeCount / tot.tradeCount if tot.tradeCount != 0 else 0.0 
     else:
         bot_summary.balance = float(account['totalWalletBalance'])
         bot_summary.totUnrealizedProfit = float(account['totalUnrealizedProfit'])
@@ -447,7 +456,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
         bot_summary.totOpenOrderInitialMargin = float(account['totalOpenOrderInitialMargin'])
         bot_summary.availableBalance = float(account['availableBalance'])
         bot_summary.totalMaintMargin = float(account['totalMaintMargin'])
-
+        
         positions = [p for p in account['positions'] if float(p['positionAmt']) != 0 or get_symbol(p) in income_by_symbol or get_symbol(p) in orders_by_symbol]
 
         for p in positions:
@@ -469,7 +478,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             ps.openingOrderValue = order.openingValue if order is not None else 0.0
             ps.closingOrderValue = order.closingValue if order is not None else 0.0
             ps.grossRealizedPnl = income.realizedPnl if income is not None else 0.0
-            ps.fundingFee = income.fundingFee if income is not None else 0.0
+            ps.fundingFee = income.funding_fee if income is not None else 0.0
             ps.commission = income.commission + income.insuranceClear if income is not None else 0.0
             ps.tpPrice = order.tpPrice if order is not None else 0.0
             ps.currentPrice = (ps.entryPrice * ps.positionAmt + ps.unrealizedProfit) / ps.positionAmt if ps.positionAmt != 0.0 else 0.0
@@ -503,27 +512,25 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             tot.lastGridLoss = tot.lastGridLoss + ps.lastGridLoss
             tot.lastGridCost = tot.lastGridCost + ps.lastGridCost
 
-        for p in bot_summary.positions.values():
-            p.realizedPnlPerc = p.realizedPnl / abs(tot.realizedPnl) if tot.realizedPnl != 0 else 0.0
-            p.tradeCountPerc = p.tradeCount / tot.tradeCount if tot.tradeCount != 0 else 0.0
-            p.openingOrderValuePerc = p.openingOrderValue / bot_summary.balance if bot_summary.balance != 0 else 0.0
-            tot.openingOrderValuePerc = tot.openingOrderValuePerc + p.openingOrderValuePerc
+            for p in bot_summary.positions.values():
+                p.realizedPnlPerc = p.realizedPnl / abs(tot.realizedPnl) if tot.realizedPnl != 0 else 0.0
+                p.tradeCountPerc = p.tradeCount / tot.tradeCount if tot.tradeCount != 0 else 0.0
+                p.openingOrderValuePerc = p.openingOrderValue / bot_summary.balance if bot_summary.balance != 0 else 0.0
+                tot.openingOrderValuePerc = tot.openingOrderValuePerc + p.openingOrderValuePerc
 
-        bot_summary.lastGridExposure = tot.lastGridExposure
-        bot_summary.lastGridLoss = tot.lastGridLoss
-        bot_summary.lastGridAvailableBalance = bot_summary.availableBalance + tot.lastGridLoss
-        bot_summary.lastGridExposurePerc = tot.lastGridExposure / bot_summary.lastGridAvailableBalance
+            bot_summary.lastGridExposure = tot.lastGridExposure
+            bot_summary.lastGridLoss = tot.lastGridLoss
+            bot_summary.lastGridAvailableBalance = bot_summary.availableBalance + tot.lastGridLoss
+            bot_summary.lastGridExposurePerc = tot.lastGridExposure / bot_summary.lastGridAvailableBalance
 
-        mainteniance_perc = bot_summary.totalMaintMargin / bot_summary.totInitialMargin if bot_summary.totInitialMargin != 0.0 else 0.0
-        last_grid_tot_initial_margin = bot_summary.totInitialMargin + bot_summary.totOpenOrderInitialMargin
-        last_grid_mainteniance_margin = last_grid_tot_initial_margin * mainteniance_perc
-        last_grid_max_loss_to_liquidation = bot_summary.lastGridAvailableBalance - last_grid_mainteniance_margin
-        bot_summary.lastGridLossToLiquidation = last_grid_max_loss_to_liquidation / bot_summary.lastGridExposure if bot_summary.lastGridExposure != 0.0 else 0
+            mainteniance_perc = bot_summary.totalMaintMargin / bot_summary.totInitialMargin if bot_summary.totInitialMargin != 0.0 else 0.0
+            last_grid_tot_initial_margin = bot_summary.totInitialMargin + bot_summary.totOpenOrderInitialMargin
+            last_grid_mainteniance_margin = last_grid_tot_initial_margin * mainteniance_perc
+            last_grid_max_loss_to_liquidation = bot_summary.lastGridAvailableBalance - last_grid_mainteniance_margin
+            bot_summary.lastGridLossToLiquidation = last_grid_max_loss_to_liquidation / bot_summary.lastGridExposure if bot_summary.lastGridExposure != 0.0 else 0
+        bot_summary.totRealizedProfitPerc = tot.realizedPnl / (bot_summary.balance - tot.realizedPnl)      
 
     bot_summary.totRealizedProfit = tot.realizedPnl
-
-    if not hystorical:
-        bot_summary.totRealizedProfitPerc = tot.realizedPnl / (bot_summary.balance - tot.realizedPnl)
 
     return bot_summary
 
@@ -532,11 +539,11 @@ def get_symbol(p):
     return p['symbol'] + ('_' + p['positionSide'] if p['positionSide'] != 'BOTH' else '')
 
 
-def get_asset_price(asset, asset_prices, client, end_timestamp, hystorical, now):
+def get_asset_price(asset, asset_prices, client, end_timestamp,  now):
     try:
         if asset in asset_prices:
             asset_price = asset_prices[asset]
-        elif hystorical and int(now.timestamp() * 1000) - end_timestamp > 24 * 60 * 60 * 1000:
+        elif int(now.timestamp()) - end_timestamp > 24 * 60 * 60 * 1000:
             kline = client.get_klines(symbol=asset + 'USDT', interval='1d', limit=1, startTime=end_timestamp)
             asset_price = float(kline[0][4])
             asset_prices[asset] = asset_price
@@ -547,6 +554,3 @@ def get_asset_price(asset, asset_prices, client, end_timestamp, hystorical, now)
     except:
         asset_price = 1.0
     return asset_price
-
-
-
