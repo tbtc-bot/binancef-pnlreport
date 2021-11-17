@@ -431,11 +431,11 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
     bot_summary.positions = {}
     bot_summary.positionsTot = tot
 
+    accepted_positionSide = {'LONG', 'SHORT'}
     if(account == {}):
         for symbol in income_by_symbol.keys():
             income = income_by_symbol[symbol]
             ps = PositionSummary(symbol)
-            bot_summary.positions[symbol] = ps
             ps.tradeCount = income.count if income is not None else 0
             ps.realizedPnl = income.netRealizedPnl if income is not None else 0.0
             ps.grossRealizedPnl = income.realizedPnl if income is not None else 0.0
@@ -446,6 +446,9 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             tot.grossRealizedPnl = tot.grossRealizedPnl + ps.grossRealizedPnl
             tot.fundingFee = tot.fundingFee + ps.fundingFee
             tot.commission = tot.commission + ps.commission
+            if p['positionSide'].upper() in accepted_positionSide:          #Aggiungo al report solo le tuple che hanno positionSide LONG o SHORT ignorando quelle BOTH
+                bot_summary.positions[symbol] = ps
+
         for p in bot_summary.positions.values():
             p.realizedPnlPerc = p.realizedPnl / tot.realizedPnl if tot.realizedPnl != 0 else 0.0
             p.tradeCountPerc = p.tradeCount / tot.tradeCount if tot.tradeCount != 0 else 0.0 
@@ -462,7 +465,6 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
         for p in positions:
             symbol = get_symbol(p)
             ps = PositionSummary(symbol)
-            bot_summary.positions[symbol] = ps
             income = income_by_symbol[symbol] if symbol in income_by_symbol else IncomeSummary()
             order = orders_by_symbol[symbol] if symbol in orders_by_symbol else None
             ps.leverage = float(p['leverage'])
@@ -507,6 +509,9 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             tot.closingOrderValue = tot.closingOrderValue + ps.closingOrderValue
             tot.grossRealizedPnl = tot.grossRealizedPnl + ps.grossRealizedPnl
             tot.fundingFee = tot.fundingFee + ps.fundingFee
+            ps.fundingFee = 0                                               #Una volta riportato nell totale il funding lo cancello dalle singole righe per evitare disguidi su griglie doppie
+            if p['positionSide'].upper() in accepted_positionSide:          #Aggiungo al report solo le tuple che hanno positionSide LONG o SHORT ignorando quelle BOTH
+                bot_summary.positions[symbol] = ps
             tot.commission = tot.commission + ps.commission
             tot.lastGridExposure = tot.lastGridExposure + abs(ps.lastGridExposure)
             tot.lastGridLoss = tot.lastGridLoss + ps.lastGridLoss
