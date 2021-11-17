@@ -446,6 +446,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             tot.grossRealizedPnl = tot.grossRealizedPnl + ps.grossRealizedPnl
             tot.fundingFee = tot.fundingFee + ps.fundingFee
             tot.commission = tot.commission + ps.commission
+            if ps.commission!= 0.0: ps.commission = -ps.commission           #Metto le commissioni negative per una visualizzazione più coerente del report finale
             if p['positionSide'].upper() in accepted_positionSide:          #Aggiungo al report solo le tuple che hanno positionSide LONG o SHORT ignorando quelle BOTH
                 bot_summary.positions[symbol] = ps
 
@@ -482,6 +483,7 @@ def get_binance_bot_summary(bot_name, api_key, api_secret, start_timestamp=0, en
             ps.grossRealizedPnl = income.realizedPnl if income is not None else 0.0
             ps.fundingFee = income.funding_fee if income is not None else 0.0
             ps.commission = income.commission + income.insuranceClear if income is not None else 0.0
+            if ps.commission!= 0.0: ps.commission = -ps.commission           #Metto le commissioni negative per una visualizzazione più coerente del report finale
             ps.tpPrice = order.tpPrice if order is not None else 0.0
             ps.currentPrice = (ps.entryPrice * ps.positionAmt + ps.unrealizedProfit) / ps.positionAmt if ps.positionAmt != 0.0 else 0.0
             ps.diffCurPriceFromTpPerc = ps.currentPrice / ps.tpPrice - 1 if ps.tpPrice != 0.0 else 0.0
@@ -559,3 +561,4 @@ def get_asset_price(asset, asset_prices, client, end_timestamp,  now):
     except:
         asset_price = 1.0
     return asset_price
+
